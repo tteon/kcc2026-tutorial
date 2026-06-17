@@ -4,6 +4,8 @@ numpy
 matplotlib
 requests
 tqdm
+python-dotenv
 # dev/notebook
 nbformat
 ipykernel
+jupyterlab

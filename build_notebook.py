@@ -56,9 +56,16 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # --- TensorMesh 접속 정보 ---
-TM_URL_BASE = "https://serverless.tensormesh.ai"   # aiperf 의 --url 에 사용
+# 키는 절대 노트북에 하드코딩하지 마세요. .env (TENSORMESH_API_KEY) 에서 읽고,
+# 없으면 입력창(getpass)으로 받습니다. (.env.example 을 .env 로 복사해 채우세요.)
+try:
+    from dotenv import load_dotenv, find_dotenv
+    load_dotenv(find_dotenv(usecwd=True))          # 현재 작업폴더 기준으로 .env 탐색·로드
+except ImportError:
+    pass
+
+TM_URL_BASE = os.environ.get("TENSORMESH_BASE_URL", "https://serverless.tensormesh.ai")  # aiperf 의 --url 에 사용
 TM_API_V1   = TM_URL_BASE + "/v1"                  # 직접 호출용
-# 키는 절대 노트북에 하드코딩하지 마세요. 환경변수 TENSORMESH_API_KEY 또는 입력창으로 받습니다.
 TM_API_KEY  = os.environ.get("TENSORMESH_API_KEY", "")
 if not TM_API_KEY:
     from getpass import getpass
@@ -73,7 +80,7 @@ print("ready. model =", MODEL_QWEN)""")
 code(r"""# 0-3. 데이터셋 준비
 # 로컬에 dataset/ 폴더가 있으면 그대로 사용하고, Colab 이면 업로드/마운트 안내.
 DATA = Path("dataset")
-EXPECTED = ["qwen_coder_blksz_16.jsonl","qwen_thinking_blksz_16.jsonl",
+EXPECTED = ["qwen_thinking_blksz_16.jsonl",
             "qwen_traceA_blksz_16.jsonl","qwen_traceB_blksz_16.jsonl",
             "kimi_conversation_trace.jsonl","kimi_toolagent_trace.jsonl"]
 
@@ -180,7 +187,7 @@ def lru_curve(rows, capacities):
     return pd.DataFrame(out)""")
 
 code(r"""# 2-4. 한 데이터셋 분석 실행
-TRACE_FILE = "qwen_coder_blksz_16.jsonl"   # 바꿔가며 실행해보세요
+TRACE_FILE = "qwen_traceA_blksz_16.jsonl"   # 바꿔가며 실행해보세요
 rows = load_trace(DATA/TRACE_FILE)
 BLOCK_SIZE, med = detect_block_size(rows)
 hit_ratio, per_req = sequential_history_hit(rows)

@@ -4,6 +4,10 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 
+# secrets
+.env
+!.env.example
+
 # datasets (not distributed — see README)
 dataset/
 *.jsonl
