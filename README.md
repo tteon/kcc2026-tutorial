@@ -1,6 +1,9 @@
 # KCC 2026 Tutorial — KVCache 분석 → TensorMesh 주입 → aiperf 프로파일링
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/tteon/kcc2026-tutorial/blob/main/kvcache_tensormesh_aiperf_tutorial.ipynb)
+
 LLM 서빙의 KVCache 재사용(prefix caching)을 한 흐름으로 실습한다.
+로컬 실행이 어려우면 위 **Open in Colab** 배지로 바로 실행한다.
 
 1. 실제 trace를 **분석**한다 (prefix hit 비율, LRU, Zipf, reuse distance).
 2. 분석 구조를 모사한 **합성 프롬프트 클러스터**를 만든다 (같은 블록 = 같은 텍스트 = cache hit).
@@ -54,7 +57,11 @@ jupyter lab
 
 ### Google Colab
 
-`kvcache_tensormesh_aiperf_tutorial.ipynb`를 Colab에서 열고 첫 셀(`%pip install ...`)부터 실행한다. `.env`가 없으므로 API 키는 실행 중 입력창(`getpass`)에 넣는다.
+상단 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/tteon/kcc2026-tutorial/blob/main/kvcache_tensormesh_aiperf_tutorial.ipynb) 배지를 누르면 메인 노트북이 Colab에서 열린다. 첫 셀부터 순서대로 실행한다.
+
+- 0-1 셀이 `%pip install`로 의존성을 설치한다.
+- `.env`가 없으므로 API 키는 실행 중 입력창(`getpass`)에 넣는다.
+- 데이터셋은 0-3 셀에서 `files.upload()`로 trace jsonl을 올리거나 Drive를 마운트한다.
 
 ---
 
