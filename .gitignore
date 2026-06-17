@@ -1,0 +1,23 @@
+# envs
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# datasets (not distributed — see README)
+dataset/
+*.jsonl
+!**/sample/*.jsonl
+
+# aiperf / run artifacts
+artifacts/
+aiperf_*.jsonl
+kimi_native_small.jsonl
+kvcache_analysis_outputs/
+
+# papers (copyright — not distributed)
+*.pdf
+
+# scratch
+_run_*.py
+/tmp/

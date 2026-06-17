@@ -1,0 +1,9 @@
+aiperf>=0.10
+pandas
+numpy
+matplotlib
+requests
+tqdm
+# dev/notebook
+nbformat
+ipykernel
