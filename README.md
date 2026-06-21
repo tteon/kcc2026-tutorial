@@ -1,5 +1,5 @@
-# KCC 2026 Tutorial — KVCache 분석 → TensorMesh 주입 → aiperf 프로파일링
-
+# KCC 2026 Tutorial
+## KVCache 분석, TensorMesh(LMCache Production Level), aiperf 프로파일링
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/tteon/kcc2026-tutorial/blob/main/kvcache_tensormesh_aiperf_tutorial.ipynb)
 
 LLM 서빙의 KVCache 재사용(prefix caching)을 한 흐름으로 실습한다.
