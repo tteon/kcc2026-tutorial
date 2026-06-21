@@ -40,4 +40,4 @@ fi
 # 4. Launch JupyterLab with a fixed token.
 JUPYTER_TOKEN="kcc2026-tutorial"
 echo ">> launching JupyterLab (token: ${JUPYTER_TOKEN}) ..."
-exec "$VENV/bin/jupyter" lab --IdentityProvider.token="$JUPYTER_TOKEN"
+exec "$VENV/bin/jupyter" lab --ip=0.0.0.0 --IdentityProvider.token="$JUPYTER_TOKEN"
