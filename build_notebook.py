@@ -108,7 +108,7 @@ md(r"""## 1. 배경: 논문과 워크로드, 그리고 trace 포맷
 
 - **Mooncake: A KVCache-centric Disaggregated Architecture for LLM Serving** — prefill/decode 를 분리하고, KVCache 를 GPU/CPU/SSD 에 걸친 **분산 KVCache pool** 로 관리해 *prefix 재사용* 을 극대화.
 - **MOONCAKE: Trading More Storage for Less Computation** — KVCache 를 저장해두면 재계산(prefill) 을 건너뛸 수 있음. "스토리지를 더 써서 연산을 줄인다".
-- **KVCache Cache in the Wild** — 대형 클라우드의 실제 트래픽에서 KVCache 재사용을 특성화: prefix 공유, **블록 인기도의 Zipf 분포**, **reuse distance**, 워크로드 카테고리별(코딩/대화/툴) 차이.
+- **KVCache in the Wild** — 대형 클라우드의 실제 트래픽에서 KVCache 재사용을 특성화: prefix 공유, **블록 인기도의 Zipf 분포**, **reuse distance**, 워크로드 카테고리별(코딩/대화/툴) 차이.
 
 ### trace 포맷 (핵심)
 
@@ -137,6 +137,32 @@ md(r"""## 1. 배경: 논문과 워크로드, 그리고 trace 포맷
 > 더 깊은 오프라인 분석(블록 수명, working set, KV 메모리 추정 등)은 함께 제공된
 > `kvcache_trace_workload_analysis.ipynb` 를 참고하세요. 이 노트북은 그 결과를 **라이브 실험으로 연결**하는 데 집중합니다.
 """)
+
+code(r"""# 1-1. 직관 그림: hash_ids 는 "토큰"이 아니라 "prefix 블록 지문"
+# 두 요청의 앞쪽 hash_id 가 같으면, 그만큼 같은 prefix 를 공유합니다.
+fig, ax = plt.subplots(figsize=(11, 2.8))
+requests = {
+    "요청 A": [0, 11, 42, 77, 91],
+    "요청 B": [0, 11, 42, 88, 12],
+    "요청 C": [0, 15, 63, 70, 92],
+}
+colors = {0:"#9ecae1", 11:"#a1d99b", 42:"#fdae6b", 77:"#d9d9d9", 91:"#d9d9d9",
+          88:"#f2f2f2", 12:"#f2f2f2", 15:"#f2f2f2", 63:"#f2f2f2", 70:"#f2f2f2", 92:"#f2f2f2"}
+
+for row, (name, ids) in enumerate(requests.items()):
+    y = len(requests) - row - 1
+    ax.text(-0.8, y + 0.35, name, ha="right", va="center", fontsize=11, weight="bold")
+    for x, h in enumerate(ids):
+        ax.add_patch(plt.Rectangle((x, y), 0.9, 0.7, facecolor=colors[h], edgecolor="#555"))
+        ax.text(x + 0.45, y + 0.35, str(h), ha="center", va="center", fontsize=10)
+
+ax.annotate("A와 B는 앞 3개 블록이 같음 → 3블록 prefix hit 후보",
+            xy=(1.4, 1.75), xytext=(2.3, 2.55),
+            arrowprops=dict(arrowstyle="->", lw=1.5), fontsize=11)
+ax.text(3.0, -0.55, "뒤쪽이 달라져도 앞 prefix 는 재사용 가능", ha="center", fontsize=10)
+ax.set_xlim(-1.4, 5.4); ax.set_ylim(-0.8, 3.1); ax.axis("off")
+ax.set_title("trace 의 hash_ids 읽는 법", fontsize=13, weight="bold")
+plt.show()""")
 
 # --- Section 2 ---
 md(r"""## 2. trace 로드 & KVCache 분석
@@ -252,6 +278,30 @@ md(r"""## 3. 분석 → 합성 데이터 클러스터 설계
 > 참고: 우리가 만든 "블록"은 단어 기준이라 서버 토크나이저의 16/512-토큰 경계와 정확히 일치하지 않습니다.
 > 따라서 목표 공유비율 `f` 와 실측 `cached_tokens/prompt_tokens` 는 **정확히 같지 않고 비례**합니다. (그게 정상이고, 그래서 실측을 따로 봅니다.)""")
 
+code(r"""# 3-0. 직관 그림: hash_id 구조를 실제 텍스트 prefix 구조로 바꾸기
+fig, ax = plt.subplots(figsize=(12, 3.2))
+ax.axis("off")
+
+left = [("hash 0", "#9ecae1"), ("hash 11", "#a1d99b"), ("hash 42", "#fdae6b"), ("hash 88", "#f2f2f2")]
+right = [("<b0> alpha ...", "#9ecae1"), ("<b11> tango ...", "#a1d99b"),
+         ("<b42> lorem ...", "#fdae6b"), ("<b88> delta ...", "#f2f2f2")]
+
+for i, (label, color) in enumerate(left):
+    ax.add_patch(plt.Rectangle((0.5 + i*1.15, 1.8), 1.0, 0.45, facecolor=color, edgecolor="#555"))
+    ax.text(1.0 + i*1.15, 2.025, label, ha="center", va="center", fontsize=10)
+for i, (label, color) in enumerate(right):
+    ax.add_patch(plt.Rectangle((6.1 + i*1.25, 1.8), 1.15, 0.45, facecolor=color, edgecolor="#555"))
+    ax.text(6.675 + i*1.25, 2.025, label, ha="center", va="center", fontsize=9)
+
+ax.annotate("deterministic mapping\n같은 hash → 같은 문자열",
+            xy=(5.1, 2.03), xytext=(3.5, 2.03),
+            arrowprops=dict(arrowstyle="->", lw=1.8), ha="center", va="center", fontsize=11)
+ax.text(0.5, 1.25, "trace 에는 실제 prompt 텍스트가 없고 block hash 만 있음", fontsize=10)
+ax.text(6.1, 1.25, "서버에는 실제 문자열을 보내야 cache hit 를 관측할 수 있음", fontsize=10)
+ax.text(6.1, 0.55, "그래서 같은 hash_id 를 항상 같은 텍스트 블록으로 복원합니다.", fontsize=11, weight="bold")
+ax.set_title("분석 trace 를 TensorMesh 에 주입 가능한 prompt 로 바꾸는 핵심 아이디어", fontsize=13, weight="bold")
+plt.show()""")
+
 code(r"""# 3-1. hash_id -> 결정적 블록 텍스트
 _WORDS=("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike "
         "november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee "
@@ -298,6 +348,34 @@ md(r"""## 4. TensorMesh 라이브 호출 + cold vs warm 단건 데모
 `429` 는 `retry-after` 를 존중하며 지수 backoff 합니다.
 
 > Qwen3.6 은 **reasoning 모델** 이라 첫 토큰이 `delta.reasoning` 으로 옵니다(아래 코드가 처리).""")
+
+code(r"""# 4-0. 직관 그림: cold 는 prefill+decode, warm 은 cached prefix 덕분에 prefill 일부를 건너뜀
+fig, ax = plt.subplots(figsize=(11, 2.7))
+ax.axis("off")
+
+def bar(y, start, width, label, color):
+    ax.add_patch(plt.Rectangle((start, y), width, 0.45, facecolor=color, edgecolor="#555"))
+    ax.text(start + width/2, y + 0.225, label, ha="center", va="center", fontsize=10)
+
+ax.text(0.2, 1.55, "COLD", fontsize=11, weight="bold", ha="right")
+bar(1.35, 0.5, 4.4, "prefill: prompt 전체 계산", "#fdae6b")
+bar(1.35, 4.9, 1.4, "decode", "#9ecae1")
+ax.annotate("첫 토큰 도착(TTFT)", xy=(4.9, 1.9), xytext=(4.9, 2.35),
+            arrowprops=dict(arrowstyle="->"), ha="center", fontsize=10)
+
+ax.text(0.2, 0.55, "WARM", fontsize=11, weight="bold", ha="right")
+bar(0.35, 0.5, 1.1, "cache lookup", "#a1d99b")
+bar(0.35, 1.6, 1.3, "새 suffix prefill", "#fdae6b")
+bar(0.35, 2.9, 1.4, "decode", "#9ecae1")
+ax.annotate("첫 토큰 도착(TTFT)", xy=(2.9, 0.9), xytext=(2.9, 1.18),
+            arrowprops=dict(arrowstyle="->"), ha="center", fontsize=10)
+
+ax.text(6.7, 1.35, "관측 신호", fontsize=11, weight="bold")
+ax.text(6.7, 1.0, "1) cached_tokens 증가", fontsize=10)
+ax.text(6.7, 0.7, "2) TTFT 감소", fontsize=10)
+ax.set_xlim(0, 9.5); ax.set_ylim(0, 2.6)
+ax.set_title("왜 prefix cache hit 이 TTFT 를 줄이는가", fontsize=13, weight="bold")
+plt.show()""")
 
 code(r"""# 4-1. 라이브 클라이언트 (스트리밍 / 429 backoff / TTFT / cached_tokens)
 import urllib.request, urllib.error
