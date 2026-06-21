@@ -81,19 +81,19 @@ def draw_panel(ax, title, q_heads, kv_groups, note):
 draw_panel(
     axes[0], "MHA", 8,
     [(0.45+i*0.42, 0.32, "KV", "#fdae6b") for i in range(8)],
-    "Q head 마다 K/V 저장\n메모리 최대"
+    "Each Q head stores K/V\nlargest cache"
 )
 draw_panel(
     axes[1], "GQA", 8,
     [(0.55, 1.45, "KV group 0", "#a1d99b"), (2.35, 1.45, "KV group 1", "#a1d99b")],
-    "여러 Q head 가 KV 공유\nMHA 대비 약 group 배 절감"
+    "Several Q heads share K/V\nabout group-size savings"
 )
 draw_panel(
     axes[2], "MLA", 8,
     [(1.0, 2.4, "compressed latent KV", "#c7b9ff")],
-    "K/V 를 latent 로 압축 저장\nlong context 에 유리"
+    "Store K/V as latent state\nbest for long context"
 )
-fig.suptitle("어텐션 구조 차이를 KV cache 관점에서 보기", fontsize=14, weight="bold")
+fig.suptitle("Attention variants from the KV-cache perspective", fontsize=14, weight="bold")
 plt.tight_layout(); plt.show()""")
 
 # --- Section 2 ---
@@ -196,7 +196,7 @@ print("tokens:", [clean_tok(t) for t in toks_mha])
 
 L = cfg.num_hidden_layers
 plot_heads(atts_mha, layer=L // 2, heads=[0, 1, 2, 3], toks=toks_mha,
-           title=f"MHA (gpt2) — layer {L//2}: head 별 패턴이 제각각")""")
+           title=f"MHA (gpt2) - layer {L//2}: each head has its own pattern")""")
 
 # --- Section 5: GQA ---
 md(r"""## 5. GQA — 같은 KV group 은 닮는다 (Qwen2.5-1.5B)
@@ -219,13 +219,13 @@ L = cfg.num_hidden_layers
 # 같은 KV group(group 0) 의 head 들을 나란히 → 서로 닮은 패턴
 grp0 = list(range(0, min(g, 4)))
 plot_heads(atts_gqa, layer=L // 2, heads=grp0, toks=toks_gqa, group_size=g,
-           title=f"GQA — layer {L//2}: 같은 KV group(0) head 들은 패턴이 닮음")
+           title=f"GQA - layer {L//2}: heads in the same KV group look similar")
 
 # 비교용: 서로 다른 group 의 head 1개씩 → 패턴이 다름
 diff = [0, g, 2 * g, 3 * g]
 diff = [h for h in diff if h < cfg.num_attention_heads][:4]
 plot_heads(atts_gqa, layer=L // 2, heads=diff, toks=toks_gqa, group_size=g,
-           title=f"GQA — layer {L//2}: 다른 KV group 의 head 들은 패턴이 다름")""")
+           title=f"GQA - layer {L//2}: heads from different KV groups diverge")""")
 
 # --- Section 6: MLA ---
 md(r"""## 6. MLA — latent 압축에도 head 는 살아있다 (DeepSeek-V2-Lite)
@@ -245,7 +245,7 @@ try:
     toks_mla, atts_mla = get_attentions(tok_mla, model_mla, DEMO_TEXT)
     L = cfg.num_hidden_layers
     plot_heads(atts_mla, layer=L // 2, heads=[0, 1, 2, 3], toks=toks_mla,
-               title=f"MLA (DeepSeek-V2-Lite) — layer {L//2}: latent 압축에도 head 별 패턴 유지")
+               title=f"MLA (DeepSeek-V2-Lite) - layer {L//2}: heads remain diverse after compression")
     MLA_OK = True
 except Exception as e:
     print("MLA 섹션 건너뜀:", repr(e)[:200])
@@ -276,8 +276,8 @@ def per_token_bytes(ref):
     return {"MHA": mha, "GQA": gqa, "MLA": mla}
 
 pt = per_token_bytes(REF)
-print("토큰당 KV cache (KB):", {k: round(v / 1024, 2) for k, v in pt.items()})
-print(f"압축비  MHA→GQA = {pt['MHA']/pt['GQA']:.1f}x,  MHA→MLA = {pt['MHA']/pt['MLA']:.1f}x")""")
+print("KV cache per token (KB):", {k: round(v / 1024, 2) for k, v in pt.items()})
+print(f"compression ratio  MHA to GQA = {pt['MHA']/pt['GQA']:.1f}x,  MHA to MLA = {pt['MHA']/pt['MLA']:.1f}x")""")
 
 code(r"""# 7-2. 컨텍스트 길이별 총 KV 메모리 (배치 1 기준)
 seq_lengths = np.array([6, 128, 1024, 4096, 32768])   # trace 6토큰 → long context
@@ -295,7 +295,7 @@ ax[0].set_title("KV Cache Footprint (7B-class, batch=1)"); ax[0].legend(); ax[0]
 for k, c in zip(["MHA", "GQA", "MLA"], ["salmon", "skyblue", "lightgreen"]):
     ax[1].plot(seq_lengths, mem[k], marker="o", label=k, color=c)
 ax[1].set_xlabel("context length (tokens)"); ax[1].set_ylabel("KV cache (MB)")
-ax[1].set_title("기울기 = long context 에서의 메모리 증가율"); ax[1].legend(); ax[1].grid(alpha=.3)
+ax[1].set_title("slope = memory growth rate at long context"); ax[1].legend(); ax[1].grid(alpha=.3)
 plt.tight_layout(); plt.show()
 
 import pandas as pd

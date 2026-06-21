@@ -142,9 +142,9 @@ code(r"""# 1-1. 직관 그림: hash_ids 는 "토큰"이 아니라 "prefix 블록
 # 두 요청의 앞쪽 hash_id 가 같으면, 그만큼 같은 prefix 를 공유합니다.
 fig, ax = plt.subplots(figsize=(11, 2.8))
 requests = {
-    "요청 A": [0, 11, 42, 77, 91],
-    "요청 B": [0, 11, 42, 88, 12],
-    "요청 C": [0, 15, 63, 70, 92],
+    "Request A": [0, 11, 42, 77, 91],
+    "Request B": [0, 11, 42, 88, 12],
+    "Request C": [0, 15, 63, 70, 92],
 }
 colors = {0:"#9ecae1", 11:"#a1d99b", 42:"#fdae6b", 77:"#d9d9d9", 91:"#d9d9d9",
           88:"#f2f2f2", 12:"#f2f2f2", 15:"#f2f2f2", 63:"#f2f2f2", 70:"#f2f2f2", 92:"#f2f2f2"}
@@ -156,12 +156,12 @@ for row, (name, ids) in enumerate(requests.items()):
         ax.add_patch(plt.Rectangle((x, y), 0.9, 0.7, facecolor=colors[h], edgecolor="#555"))
         ax.text(x + 0.45, y + 0.35, str(h), ha="center", va="center", fontsize=10)
 
-ax.annotate("A와 B는 앞 3개 블록이 같음 → 3블록 prefix hit 후보",
+ax.annotate("A and B share the first 3 blocks\n= prefix-cache hit candidate",
             xy=(1.4, 1.75), xytext=(2.3, 2.55),
             arrowprops=dict(arrowstyle="->", lw=1.5), fontsize=11)
-ax.text(3.0, -0.55, "뒤쪽이 달라져도 앞 prefix 는 재사용 가능", ha="center", fontsize=10)
+ax.text(3.0, -0.55, "Even if the suffix changes, the shared prefix can be reused", ha="center", fontsize=10)
 ax.set_xlim(-1.4, 5.4); ax.set_ylim(-0.8, 3.1); ax.axis("off")
-ax.set_title("trace 의 hash_ids 읽는 법", fontsize=13, weight="bold")
+ax.set_title("How to read hash_ids in a trace", fontsize=13, weight="bold")
 plt.show()""")
 
 # --- Section 2 ---
@@ -262,6 +262,120 @@ for fn in EXPECTED:
     summary.append({"dataset":fn,"block_size":bs,"sample_reqs":len(rws),"prefix_hit_ratio":round(hr,3)})
 display(pd.DataFrame(summary))""")
 
+md(r"""### 2-7. 워크로드별 특성 비교
+
+여기서는 `kimi-*`, `qwen-*` trace를 같은 관점으로 비교합니다.
+
+주의할 점:
+
+- Qwen trace는 block size가 약 **16 tokens**라 prefix 공유를 촘촘하게 봅니다.
+- Kimi/Mooncake trace는 block size가 약 **512 tokens**라 훨씬 큰 prefix 단위로 봅니다.
+- 그래서 `num_blocks`나 `capacity_blocks`는 서로 직접 비교하면 안 되고, `block_size`와 함께 해석해야 합니다.
+
+아래 표와 그래프는 워크로드별로 다음을 봅니다.
+
+1. request 수와 input/output 길이 분포
+2. prompt가 몇 개 KV block으로 나뉘는지
+3. 과거 요청 기준 prefix/block hit 비율
+4. LRU cache 용량이 늘 때 hit가 얼마나 빨리 올라가는지
+5. reuse distance: 같은 block이 다시 등장하기까지 몇 request가 걸리는지
+""")
+
+code(r"""# 2-7. 워크로드별 요약 통계 + LRU/reuse-distance 비교
+def workload_label(fn):
+    return fn.replace("_trace", "").replace("_blksz_16", "").replace(".jsonl", "")
+
+def reuse_distance_by_request(rows, limit_refs=300_000):
+    # 같은 hash_id 가 다시 등장하기까지의 request index 거리.
+    # 너무 큰 trace 는 앞 limit_refs refs 만 사용합니다.
+    last = {}
+    dists = []
+    refs = 0
+    for i, r in enumerate(rows):
+        for b in r["hash_ids"]:
+            if b in last:
+                dists.append(i - last[b])
+            last[b] = i
+            refs += 1
+            if refs >= limit_refs:
+                return np.array(dists, dtype=float)
+    return np.array(dists, dtype=float)
+
+def workload_summary(path, sample_limit=20_000):
+    rows_w = load_trace(path, limit=sample_limit)
+    bs, med = detect_block_size(rows_w)
+    hit, per_req_hit = sequential_history_hit(rows_w)
+    inp = np.array([r["input_length"] for r in rows_w])
+    out = np.array([r["output_length"] for r in rows_w])
+    nblk = np.array([len(r["hash_ids"]) for r in rows_w])
+    rd = reuse_distance_by_request(rows_w)
+    return {
+        "dataset": workload_label(path.name),
+        "block_size": bs,
+        "sample_reqs": len(rows_w),
+        "input_p50": np.percentile(inp, 50),
+        "input_p90": np.percentile(inp, 90),
+        "output_p50": np.percentile(out, 50),
+        "output_p90": np.percentile(out, 90),
+        "blocks_p50": np.percentile(nblk, 50),
+        "blocks_p90": np.percentile(nblk, 90),
+        "approx_prompt_blocks_p50_tokens": np.percentile(nblk, 50) * bs,
+        "prefix_hit_ratio": hit,
+        "per_req_hit_p50": np.nanpercentile(per_req_hit, 50),
+        "reuse_distance_p50_req": np.nan if len(rd) == 0 else np.percentile(rd, 50),
+        "reuse_distance_p90_req": np.nan if len(rd) == 0 else np.percentile(rd, 90),
+    }
+
+workload_files = [DATA/f for f in EXPECTED if (DATA/f).exists()]
+workload_df = pd.DataFrame([workload_summary(p) for p in workload_files])
+display(workload_df.round(3))
+
+# LRU capacity는 block count 기준. block size가 다른 Kimi/Qwen은 그래프의 x축을 block_size와 함께 해석합니다.
+lru_caps = [64, 256, 1024, 4096, 16384]
+lru_all = []
+for p in workload_files:
+    rows_w = load_trace(p, limit=20_000)
+    df_lru = lru_curve(rows_w, lru_caps)
+    df_lru["dataset"] = workload_label(p.name)
+    df_lru["block_size"] = detect_block_size(rows_w)[0]
+    lru_all.append(df_lru)
+lru_all = pd.concat(lru_all, ignore_index=True)
+
+fig, ax = plt.subplots(1, 3, figsize=(17, 4.5))
+ax[0].bar(workload_df["dataset"], workload_df["prefix_hit_ratio"])
+ax[0].set_title("overall prefix/block hit ratio")
+ax[0].set_ylabel("hit ratio")
+ax[0].tick_params(axis="x", rotation=35)
+ax[0].grid(axis="y", alpha=.3)
+
+for name, g in lru_all.groupby("dataset"):
+    bs = int(g["block_size"].iloc[0])
+    ax[1].plot(g["capacity_blocks"], g["hit_rate"], marker="o", label=f"{name} (b={bs})")
+ax[1].set_xscale("log")
+ax[1].set_title("LRU hit curve (capacity in blocks)")
+ax[1].set_xlabel("cache capacity (blocks)")
+ax[1].set_ylabel("hit rate")
+ax[1].legend(fontsize=8)
+ax[1].grid(alpha=.3)
+
+ax[2].scatter(workload_df["input_p90"], workload_df["prefix_hit_ratio"], s=90)
+for _, r in workload_df.iterrows():
+    ax[2].annotate(r["dataset"], (r["input_p90"], r["prefix_hit_ratio"]), xytext=(5, 5),
+                   textcoords="offset points", fontsize=9)
+ax[2].set_title("longer prompts vs reuse")
+ax[2].set_xlabel("input length p90 (tokens)")
+ax[2].set_ylabel("prefix/block hit ratio")
+ax[2].grid(alpha=.3)
+plt.tight_layout(); plt.show()
+
+display(lru_all.pivot_table(index=["dataset", "block_size"], columns="capacity_blocks", values="hit_rate").round(3))
+
+print("Interpretation guide")
+print("- High prefix_hit_ratio: many prefix/block references are shared with earlier requests")
+print("- LRU curve rises early: small working set or strong hot-block reuse")
+print("- Large reuse_distance: blocks must stay cached longer to produce hits")
+print("- Kimi(512) and Qwen(16) have different block granularity; compare block counts with token estimates")""")
+
 # --- Section 3 ---
 md(r"""## 3. 분석 → 합성 데이터 클러스터 설계
 
@@ -293,13 +407,13 @@ for i, (label, color) in enumerate(right):
     ax.add_patch(plt.Rectangle((6.1 + i*1.25, 1.8), 1.15, 0.45, facecolor=color, edgecolor="#555"))
     ax.text(6.675 + i*1.25, 2.025, label, ha="center", va="center", fontsize=9)
 
-ax.annotate("deterministic mapping\n같은 hash → 같은 문자열",
+ax.annotate("deterministic mapping\nsame hash -> same text",
             xy=(5.1, 2.03), xytext=(3.5, 2.03),
             arrowprops=dict(arrowstyle="->", lw=1.8), ha="center", va="center", fontsize=11)
-ax.text(0.5, 1.25, "trace 에는 실제 prompt 텍스트가 없고 block hash 만 있음", fontsize=10)
-ax.text(6.1, 1.25, "서버에는 실제 문자열을 보내야 cache hit 를 관측할 수 있음", fontsize=10)
-ax.text(6.1, 0.55, "그래서 같은 hash_id 를 항상 같은 텍스트 블록으로 복원합니다.", fontsize=11, weight="bold")
-ax.set_title("분석 trace 를 TensorMesh 에 주입 가능한 prompt 로 바꾸는 핵심 아이디어", fontsize=13, weight="bold")
+ax.text(0.5, 1.25, "The trace has block hashes, not raw prompt text", fontsize=10)
+ax.text(6.1, 1.25, "The API needs real text to trigger real cache hits", fontsize=10)
+ax.text(6.1, 0.55, "So each hash_id is mapped to a stable text block.", fontsize=11, weight="bold")
+ax.set_title("Turning trace structure into prompts TensorMesh can cache", fontsize=13, weight="bold")
 plt.show()""")
 
 code(r"""# 3-1. hash_id -> 결정적 블록 텍스트
@@ -358,23 +472,23 @@ def bar(y, start, width, label, color):
     ax.text(start + width/2, y + 0.225, label, ha="center", va="center", fontsize=10)
 
 ax.text(0.2, 1.55, "COLD", fontsize=11, weight="bold", ha="right")
-bar(1.35, 0.5, 4.4, "prefill: prompt 전체 계산", "#fdae6b")
+bar(1.35, 0.5, 4.4, "prefill: compute full prompt", "#fdae6b")
 bar(1.35, 4.9, 1.4, "decode", "#9ecae1")
-ax.annotate("첫 토큰 도착(TTFT)", xy=(4.9, 1.9), xytext=(4.9, 2.35),
+ax.annotate("first token arrives (TTFT)", xy=(4.9, 1.9), xytext=(4.9, 2.35),
             arrowprops=dict(arrowstyle="->"), ha="center", fontsize=10)
 
 ax.text(0.2, 0.55, "WARM", fontsize=11, weight="bold", ha="right")
 bar(0.35, 0.5, 1.1, "cache lookup", "#a1d99b")
-bar(0.35, 1.6, 1.3, "새 suffix prefill", "#fdae6b")
+bar(0.35, 1.6, 1.3, "new suffix prefill", "#fdae6b")
 bar(0.35, 2.9, 1.4, "decode", "#9ecae1")
-ax.annotate("첫 토큰 도착(TTFT)", xy=(2.9, 0.9), xytext=(2.9, 1.18),
+ax.annotate("first token arrives (TTFT)", xy=(2.9, 0.9), xytext=(2.9, 1.18),
             arrowprops=dict(arrowstyle="->"), ha="center", fontsize=10)
 
-ax.text(6.7, 1.35, "관측 신호", fontsize=11, weight="bold")
-ax.text(6.7, 1.0, "1) cached_tokens 증가", fontsize=10)
-ax.text(6.7, 0.7, "2) TTFT 감소", fontsize=10)
+ax.text(6.7, 1.35, "What we observe", fontsize=11, weight="bold")
+ax.text(6.7, 1.0, "1) cached_tokens increases", fontsize=10)
+ax.text(6.7, 0.7, "2) TTFT decreases", fontsize=10)
 ax.set_xlim(0, 9.5); ax.set_ylim(0, 2.6)
-ax.set_title("왜 prefix cache hit 이 TTFT 를 줄이는가", fontsize=13, weight="bold")
+ax.set_title("Why prefix-cache hits reduce TTFT", fontsize=13, weight="bold")
 plt.show()""")
 
 code(r"""# 4-1. 라이브 클라이언트 (스트리밍 / 429 backoff / TTFT / cached_tokens)
