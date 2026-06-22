@@ -53,7 +53,7 @@ code(r"""# 0-1. 패키지 설치
 print("installed")""")
 
 code(r"""# 0-2. 기본 import & 설정
-import json, time, os, random, subprocess, glob
+import json, time, os, random, subprocess, glob, sys
 from collections import OrderedDict
 from pathlib import Path
 import numpy as np
@@ -624,7 +624,7 @@ code(r"""# 6-1. aiperf 실행 & 결과 파싱 헬퍼
 def run_aiperf(input_file, dataset_type="mooncake_trace", model=MODEL_QWEN,
                request_rate=0.25, request_count=6, prefix="run",
                benchmark_duration=120, request_timeout=45, hard_timeout=200, extra=None):
-    cmd=["aiperf","profile","--model",model,"--url",TM_URL_BASE,
+    cmd=[sys.executable, "-m", "aiperf", "profile", "--model",model,"--url",TM_URL_BASE,
          "--endpoint-type","chat","--endpoint","/v1/chat/completions",
          "--streaming","--api-key",TM_API_KEY,
          "--input-file",input_file,"--custom-dataset-type",dataset_type,
