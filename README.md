@@ -153,7 +153,9 @@ trace(jsonl)  →  KVCache 분석          →  합성 클러스터        →  
 - **rate limit**: `serverless.tensormesh.ai`는 부하 시 `429 "Server is overloaded"`(retry-after)를 준다.
   - 직접 호출: 지수 backoff + 낮은 동시성.
   - aiperf: 429를 재시도하지 않는다. `--concurrency`로 연속 발사하면 버스트가 전부 429가 된다. `--request-rate`(예: 0.25/s)로 간격을 벌리고 `--benchmark-duration` / `--request-timeout-seconds`로 멈춤을 막는다.
-- **aiperf native mooncake_trace**: 512블록 trace(Kimi)는 `--custom-dataset-type mooncake_trace`로 그대로 리플레이된다. 16블록 trace는 합성 `text_input` JSONL 경로를 쓴다 (노트북 6장).
+- **aiperf dataset type 구분**:
+  - `mooncake-trace`: `input_length` / `output_length` / `hash_ids` trace를 aiperf가 synthetic prompt로 변환해 리플레이한다. 로그에 보이는 raw text는 원문 복원이 아니라 benchmark용 synthetic text다.
+  - `single-turn`: 노트북이 직접 만든 합성 prompt를 `{"text": "...", "output_length": ...}` JSONL로 저장해 그대로 리플레이한다.
 - TensorMesh 콘솔의 **Cache Savings / Serverless Usage** 대시보드에서 누적 cache hit rate·비용 절감을 교차 확인한다.
 
 ## 보안
